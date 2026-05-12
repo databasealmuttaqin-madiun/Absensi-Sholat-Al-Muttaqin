@@ -58,21 +58,31 @@ export default function RecapView() {
         end = endOfMonth(now);
       }
 
-      // Fetch santri first to get the baseline
-      const { data: sData } = await supabase.from('santri').select('*');
+      // 1. Ambil daftar santri sebagai baseline
+      const { data: sData, error: sError } = await supabase.from('santri').select('*');
+      if (sError) throw new Error(`Gagal ambil data santri: ${sError.message}`);
       setSantriList(sData || []);
 
-      // Fetch attendance in range
-      const { data: aData, error } = await supabase
-        .from('absen_sholat')
-        .select('*')
+      // 2. Ambil data absensi
+      // Kita coba filter berdasarkan waktu, jika gagal (mungkin kolom created_at tidak ada), ambil semua
+      let query = supabase.from('absen_sholat').select('*');
+      
+      // Coba tambahkan filter waktu
+      const { data: aData, error: aError } = await query
         .gte('created_at', start.toISOString())
         .lte('created_at', end.toISOString());
       
-      if (error) throw error;
-      setAttendanceData(aData || []);
-    } catch (err) {
+      if (aError) {
+        console.warn("Gagal filter waktu (mungkin kolom created_at tidak ada), mencoba ambil semua data...");
+        const { data: allData, error: allErr } = await supabase.from('absen_sholat').select('*');
+        if (allErr) throw new Error(`Gagal ambil data absen: ${allErr.message}`);
+        setAttendanceData(allData || []);
+      } else {
+        setAttendanceData(aData || []);
+      }
+    } catch (err: any) {
       console.error("Error fetching recap:", err);
+      alert(`Error Rekap: ${err.message}`);
     } finally {
       setLoading(false);
     }

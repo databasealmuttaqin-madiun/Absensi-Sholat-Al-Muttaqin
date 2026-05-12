@@ -39,32 +39,46 @@ export default function AttendanceList() {
       if (santriError) throw santriError;
       setAllSantri(santriData || []);
 
-      // 2. Fetch attendance for TODAY and current sholat
+      // 2. INSPECTION: Cek kolom yang tersedia di absen_sholat
+      const { data: testData } = await supabase.from('absen_sholat').select('*').limit(1);
+      if (testData && testData.length > 0) {
+        console.log("Kolom yang ditemukan di tabel 'absen_sholat':", Object.keys(testData[0]));
+      }
+
+      // 3. Fetch attendance for TODAY and current sholat
       if (sholatSession !== 'None') {
         const today = new Date();
         const startOfDay = new Date(today.setHours(0, 0, 0, 0)).toISOString();
         const endOfDay = new Date(today.setHours(23, 59, 59, 999)).toISOString();
 
-        const { data: absenData, error: absenError } = await supabase
-          .from('absen_sholat')
-          .select('nama, kelas')
-          .eq('sholat', sholatSession)
+        // Kita coba ambil berdasarkan sholat dan waktu hari ini
+        let query = supabase.from('absen_sholat').select('nama, kelas').eq('sholat', sholatSession);
+        
+        // PENTING: Jika kolom 'created_at' tidak ada, query ini akan error. 
+        // Kita gunakan try-catch blok di dalam query ini
+        const { data: absenData, error: absenError } = await query
           .gte('created_at', startOfDay)
           .lte('created_at', endOfDay);
 
-        if (absenError) throw absenError;
+        let finalAbsenData = absenData;
+        if (absenError) {
+          console.warn("Gagal filter tanggal (mungkin kolom 'created_at' tidak ada):", absenError.message);
+          const { data: backupData } = await supabase.from('absen_sholat').select('nama, kelas').eq('sholat', sholatSession);
+          finalAbsenData = backupData;
+        }
 
         // Map already checked-in students
         const checked = new Set<string>();
-        absenData?.forEach(item => {
-           // We find the santri ID based on name and class (since provided schema doesn't have a unique ID in absen_sholat)
+        finalAbsenData?.forEach(item => {
            const santri = santriData?.find(s => s.nama === item.nama && s.kelas === item.kelas);
-           if (santri) checked.add(santri.id);
+           const studentKey = santri?.id || `${item.nama}-${item.kelas}`;
+           checked.add(studentKey);
         });
         setCheckedSantriIds(checked);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error("Error fetching data:", err);
+      // alert(`Gagal memuat data: ${err.message}`);
     } finally {
       setLoading(false);
     }
@@ -77,8 +91,11 @@ export default function AttendanceList() {
   const filteredSantri = useMemo(() => {
     return allSantri.filter(s => {
       const matchKelas = selectedKelas ? s.kelas === selectedKelas : true;
-      const matchStatus = s.status === 'Aktif';
-      const notChecked = !checkedSantriIds.has(s.id);
+      // Make status check more flexible (case insensitive)
+      const matchStatus = s.status?.toLowerCase() === 'aktif';
+      // Use name+class as fallback if ID is missing
+      const studentKey = s.id || `${s.nama}-${s.kelas}`;
+      const notChecked = !checkedSantriIds.has(studentKey);
       const matchSearch = s.nama.toLowerCase().includes(searchQuery.toLowerCase());
       return matchKelas && matchStatus && notChecked && matchSearch;
     });
@@ -86,29 +103,53 @@ export default function AttendanceList() {
 
   async function handleCheck(santri: Santri) {
     if (sholatSession === 'None') {
-      alert("Belum saatnya waktu sholat.");
+      alert("Maaf, saat ini bukan waktu sholat (atau di luar jendela waktu presensi).");
       return;
     }
 
     try {
-      const newAbsen: AbsenSholat = {
-        nama: santri.nama,
-        kelas: santri.kelas,
+      const studentKey = santri.id || `${santri.nama}-${santri.kelas}`;
+      
+      // Pastikan data yang dikirim sesuai dengan kolom di database
+      const newAbsen = {
+        nama: santri.nama || '',
+        kelas: santri.kelas || '',
         sholat: sholatSession,
         kehadiran: isIqomah ? 'Telat' : 'Berjamaah'
       };
 
-      const { error } = await supabase
+      console.log("Mencoba kirim ke Supabase:", newAbsen);
+
+      const { data, error } = await supabase
         .from('absen_sholat')
-        .insert([newAbsen]);
+        .insert([newAbsen])
+        .select();
 
-      if (error) throw error;
+      if (error) {
+        console.error("Supabase Error API:", error);
+        throw new Error(error.message);
+      }
 
-      // Update local state to hide the student
-      setCheckedSantriIds(prev => new Set(prev).add(santri.id));
-    } catch (err) {
-      console.error("Error marking attendance:", err);
-      alert("Gagal mencatat absensi.");
+      console.log("Berhasil simpan:", data);
+
+      // Update state lokal agar nama langsung hilang dari daftar
+      setCheckedSantriIds(prev => {
+        const next = new Set(prev);
+        next.add(studentKey);
+        return next;
+      });
+
+    } catch (err: any) {
+      console.error("Detail Error Lengkap:", err);
+      
+      let errorMsg = err.message;
+      if (errorMsg.includes("column") && errorMsg.includes("sholat")) {
+        errorMsg = "Kolom 'sholat' tidak ditemukan di tabel Supabase. Silakan tambahkan kolom tersebut.";
+      } else if (errorMsg.includes("row-level security")) {
+        errorMsg = "Akses ditolak oleh Supabase (RLS Policy). Silakan matikan RLS atau tambahkan Policy 'Insert' untuk publik.";
+      }
+
+      alert(`Gagal Absen: ${errorMsg}\n\nPeriksa SQL Editor di Supabase untuk memastikan struktur tabel sesuai.`);
     }
   }
 
@@ -221,15 +262,15 @@ export default function AttendanceList() {
               </div>
 
               <div className="flex-1 overflow-y-auto scrollbar-hide space-y-2 pr-1">
-                {filteredSantri.map((santri) => (
+                {filteredSantri.map((santri, idx) => (
                   <div 
-                    key={santri.id} 
+                    key={santri.id || `${santri.nama}-${idx}`} 
                     onClick={() => handleCheck(santri)}
                     className="group flex items-center justify-between p-4 rounded-2xl bg-slate-50 hover:bg-indigo-50 border border-transparent hover:border-indigo-100 transition-all cursor-pointer select-none active:scale-[0.98]"
                   >
                     <div className="flex items-center gap-3">
                       <div className="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center font-bold text-indigo-700 group-hover:scale-110 transition-transform">
-                        {santri.nama.charAt(0).toUpperCase()}
+                        {santri.nama?.charAt(0).toUpperCase() || '?'}
                       </div>
                       <div>
                         <p className="font-bold text-sm text-slate-800">{santri.nama}</p>
@@ -243,9 +284,17 @@ export default function AttendanceList() {
                 ))}
                 {filteredSantri.length === 0 && !loading && (
                   <div className="h-full flex flex-col items-center justify-center text-slate-400 py-20 px-6 text-center">
-                    <CheckCircle2 className="w-12 h-12 text-emerald-100 mb-4" />
-                    <p className="text-sm font-bold text-slate-600">Selesai!</p>
-                    <p className="text-xs mt-1">Semua santri di daftar ini sudah diabsen.</p>
+                    <div className="bg-slate-50 p-6 rounded-full mb-4">
+                       {allSantri.length === 0 ? <Users className="w-12 h-12 text-slate-300" /> : <CheckCircle2 className="w-12 h-12 text-emerald-100" />}
+                    </div>
+                    <p className="text-sm font-bold text-slate-600">
+                      {allSantri.length === 0 ? 'Tabel Santri Kosong' : 'Selesai!'}
+                    </p>
+                    <p className="text-xs mt-1">
+                      {allSantri.length === 0 
+                        ? 'Pastikan Anda sudah mengisi data santri di tabel Supabase dengan kolom: nama, kelas, status.' 
+                        : 'Semua santri di daftar ini sudah diabsen.'}
+                    </p>
                   </div>
                 )}
               </div>
