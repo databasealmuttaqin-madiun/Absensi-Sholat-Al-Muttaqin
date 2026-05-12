@@ -3,33 +3,33 @@ import { format, isWithinInterval, setHours, setMinutes } from 'date-fns';
 export type SholatType = 'Subuh' | 'Dzuhur' | 'Ashar' | 'Maghrib' | 'Isya' | 'None';
 
 export const SHOLAT_WINDOWS: Record<Exclude<SholatType, 'None'>, { start: [number, number], end: [number, number] }> = {
-  Subuh: { start: [4, 0], end: [6, 0] },
-  Dzuhur: { start: [11, 45], end: [15, 0] },
-  Ashar: { start: [15, 0], end: [18, 0] },
-  Maghrib: { start: [18, 0], end: [19, 15] },
-  Isya: { start: [19, 15], end: [4, 0] }, // Wraps to next day
+  Subuh: { start: [4, 0], end: [5, 0] },
+  Dzuhur: { start: [11, 30], end: [12, 30] },
+  Ashar: { start: [14, 50], end: [15, 30] },
+  Maghrib: { start: [17, 15], end: [18, 0] },
+  Isya: { start: [18, 30], end: [19, 30] },
 };
 
 export function getCurrentSholat(): SholatType {
   const now = new Date();
+  const isFriday = now.getDay() === 5; // 0 Sunday, 5 Friday
   
   for (const [sholat, range] of Object.entries(SHOLAT_WINDOWS)) {
-    const startTime = setMinutes(setHours(now, range.start[0]), range.start[1]);
-    let endTime = setMinutes(setHours(now, range.end[0]), range.end[1]);
+    let startH = range.start[0];
+    let startM = range.start[1];
+    let endH = range.end[0];
+    let endM = range.end[1];
 
-    // Handle Isya wrapping to next morning or previous night logic
-    if (sholat === 'Isya') {
-       if (now.getHours() < 4) {
-         const prevDayStart = setMinutes(setHours(new Date(now.getTime() - 86400000), 19), 15);
-         const todayEnd = setMinutes(setHours(now, 4), 0);
-         if (isWithinInterval(now, { start: prevDayStart, end: todayEnd })) return 'Isya';
-       } else {
-         const todayStart = setMinutes(setHours(now, 19), 15);
-         const nextDayEnd = setMinutes(setHours(new Date(now.getTime() + 86400000), 4), 0);
-         if (isWithinInterval(now, { start: todayStart, end: nextDayEnd })) return 'Isya';
-       }
-       continue;
+    // Friday exception for Dzuhur
+    if (sholat === 'Dzuhur' && isFriday) {
+      startH = 11;
+      startM = 0;
+      endH = 12;
+      endM = 0;
     }
+
+    const startTime = setMinutes(setHours(setMinutes(setHours(new Date(), 0), 0), startH), startM);
+    const endTime = setMinutes(setHours(setMinutes(setHours(new Date(), 0), 0), endH), endM);
 
     if (isWithinInterval(now, { start: startTime, end: endTime })) {
       return sholat as SholatType;
