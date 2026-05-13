@@ -181,62 +181,33 @@ export default function AttendanceList() {
       
       ndef.onreading = (event: any) => {
         const serialNumber = event.serialNumber;
-        let nfcData = serialNumber;
-
-        // Mendeteksi data pesan NFC
-        if (event.message && event.message.records) {
-          console.log("NFC Records found:", event.message.records.length);
-          
-          for (const record of event.message.records) {
-            console.log("Record Type:", record.recordType, "Media Type:", record.mediaType);
-            
-            // Cek jika tipe record adalah 'text' atau 'mime' dengan media type 'text/plain'
-            if (record.recordType === "text" || record.mediaType === "text/plain") {
-              try {
-                const textDecoder = new TextDecoder(record.encoding || 'utf-8');
-                const decoded = textDecoder.decode(record.data);
-                
-                if (record.recordType === "text") {
-                  // NDEF Text record standar: Byte pertama mengandung info panjang kode bahasa
-                  const dataView = new DataView(record.data.buffer || record.data);
-                  const langCodeLength = dataView.getUint8(record.data.byteOffset || 0) & 0x3f;
-                  nfcData = decoded.substring(1 + langCodeLength);
-                } else {
-                  // Tipe MIME (text/plain) langsung ambil datanya
-                  nfcData = decoded;
-                }
-                
-                // Bersihkan karakter aneh atau spasi
-                nfcData = nfcData.replace(/[\u0000-\u001F\u007F-\u009F]/g, "").trim();
-              } catch (e) {
-                console.warn("Gagal decode data NFC:", e);
-              }
-              break; // Gunakan record pertama yang valid
-            }
-          }
-        }
-
-        console.log("Hasil Scan - Serial:", serialNumber, "Final Data:", nfcData);
         
+        // Prioritaskan Serial Number karena paling stabil
+        const finalId = serialNumber || "";
+        console.log("NFC Scanned Serial:", finalId);
+
         if (registeringNfcFor) {
-          handleRegisterNfc(registeringNfcFor, nfcData);
+          handleRegisterNfc(registeringNfcFor, finalId);
           return;
         }
 
-        // Cari santri berdasarkan nfc_id (cek kecocokan dengan nfcData atau serialNumber)
+        const normalize = (val: string) => (val || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+        const target = normalize(finalId);
+
         const santri = allSantri.find(s => {
-          const dbNfcId = s.nfc_id?.trim();
-          return dbNfcId && (dbNfcId === nfcData || dbNfcId === serialNumber);
+          if (!s.nfc_id) return false;
+          // Cari kecocokan di database (juga dinormalisasi)
+          return normalize(s.nfc_id) === target;
         });
         
         if (santri) {
           const studentKey = santri.id || `${santri.nama}-${santri.kelas}`;
           if (!checkedSantriIds.has(studentKey)) {
             handleCheck(santri);
-            if ('vibrate' in navigator) navigator.vibrate(200);
+            if ("vibrate" in navigator) navigator.vibrate(200);
           }
         } else {
-          alert(`Tag NFC tidak terdaftar.\n\nNomor Kartu: ${nfcData}\nSerial: ${serialNumber}\n\nPastikan nomor "${nfcData}" sudah diinput di kolom nfc_id pada database.`);
+          alert(`Kartu Tidak Terdaftar\n\nSerial: ${finalId}\n\nSilakan klik ikon HP di sebelah nama santri "${selectedKelas ? 'di kelas ini' : 'di daftar'}" lalu tempelkan kartu ini untuk mendaftarkannya.`);
         }
       };
 
