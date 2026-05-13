@@ -183,39 +183,51 @@ export default function AttendanceList() {
         const serialNumber = event.serialNumber;
         let nfcData = serialNumber;
 
-        // Cek apakah ada data teks (NDEF) di dalam kartu
+        // Mendeteksi data pesan NFC
         if (event.message && event.message.records) {
+          console.log("NFC Records found:", event.message.records.length);
+          
           for (const record of event.message.records) {
-            if (record.recordType === "text") {
+            console.log("Record Type:", record.recordType, "Media Type:", record.mediaType);
+            
+            // Cek jika tipe record adalah 'text' atau 'mime' dengan media type 'text/plain'
+            if (record.recordType === "text" || record.mediaType === "text/plain") {
               try {
                 const textDecoder = new TextDecoder(record.encoding || 'utf-8');
                 const decoded = textDecoder.decode(record.data);
                 
-                // NDEF Text record: first byte is status (encoding + lang length)
-                // We attempt to strip the language code to get the pure text
-                const langCodeLength = record.data instanceof DataView 
-                  ? record.data.getUint8(0) & 0x3f 
-                  : (new DataView(record.data.buffer)).getUint8(0) & 0x3f;
-                  
-                nfcData = decoded.substring(1 + langCodeLength);
+                if (record.recordType === "text") {
+                  // NDEF Text record standar: Byte pertama mengandung info panjang kode bahasa
+                  const dataView = new DataView(record.data.buffer || record.data);
+                  const langCodeLength = dataView.getUint8(record.data.byteOffset || 0) & 0x3f;
+                  nfcData = decoded.substring(1 + langCodeLength);
+                } else {
+                  // Tipe MIME (text/plain) langsung ambil datanya
+                  nfcData = decoded;
+                }
+                
+                // Bersihkan karakter aneh atau spasi
+                nfcData = nfcData.replace(/[\u0000-\u001F\u007F-\u009F]/g, "").trim();
               } catch (e) {
-                console.warn("Gagal decode teks NFC:", e);
+                console.warn("Gagal decode data NFC:", e);
               }
+              break; // Gunakan record pertama yang valid
             }
           }
         }
 
-        console.log("NFC Detected - SN:", serialNumber, "Data:", nfcData);
+        console.log("Hasil Scan - Serial:", serialNumber, "Final Data:", nfcData);
         
         if (registeringNfcFor) {
           handleRegisterNfc(registeringNfcFor, nfcData);
           return;
         }
 
-        const santri = allSantri.find(s => 
-          (s.nfc_id && s.nfc_id.trim() === nfcData?.trim()) || 
-          (s.nfc_id && s.nfc_id.trim() === serialNumber?.trim())
-        );
+        // Cari santri berdasarkan nfc_id (cek kecocokan dengan nfcData atau serialNumber)
+        const santri = allSantri.find(s => {
+          const dbNfcId = s.nfc_id?.trim();
+          return dbNfcId && (dbNfcId === nfcData || dbNfcId === serialNumber);
+        });
         
         if (santri) {
           const studentKey = santri.id || `${santri.nama}-${santri.kelas}`;
@@ -224,7 +236,7 @@ export default function AttendanceList() {
             if ('vibrate' in navigator) navigator.vibrate(200);
           }
         } else {
-          alert(`Tag NFC tidak terdaftar.\nSerial: ${serialNumber || '-'}\nIsi Teks: ${nfcData === serialNumber ? '(Kosong)' : nfcData}`);
+          alert(`Tag NFC tidak terdaftar.\n\nNomor Kartu: ${nfcData}\nSerial: ${serialNumber}\n\nPastikan nomor "${nfcData}" sudah diinput di kolom nfc_id pada database.`);
         }
       };
 

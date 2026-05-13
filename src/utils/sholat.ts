@@ -7,7 +7,7 @@ export const SHOLAT_WINDOWS: Record<Exclude<SholatType, 'None'>, { start: [numbe
   Dzuhur: { start: [11, 30], end: [12, 30] },
   Ashar: { start: [14, 50], end: [15, 30] },
   Maghrib: { start: [17, 15], end: [18, 0] },
-  Isya: { start: [18, 30], end: [19, 30] },
+  Isya: { start: [18, 30], end: [20, 30] },
 };
 
 export function getCurrentSholat(): SholatType {
