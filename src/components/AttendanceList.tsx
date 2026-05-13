@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { getCurrentSholat, getSholatLabel } from '../utils/sholat';
 import { Santri, AbsenSholat } from '../types';
@@ -18,6 +18,7 @@ export default function AttendanceList() {
   const [isNfcScanning, setIsNfcScanning] = useState(false);
   const [nfcSupported, setNfcSupported] = useState(true);
   const [registeringNfcFor, setRegisteringNfcFor] = useState<string | null>(null);
+  const processingRef = useRef<Set<string>>(new Set());
 
   // Check NFC Support
   useEffect(() => {
@@ -38,6 +39,42 @@ export default function AttendanceList() {
   useEffect(() => {
     fetchData();
   }, [sholatSession]);
+
+  // Real-time synchronization
+  useEffect(() => {
+    if (sholatSession === 'None') return;
+
+    const channel = supabase
+      .channel('attendance_realtime')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'absen_sholat'
+        },
+        (payload) => {
+          const newItem = payload.new;
+          // Only sync if it matches current session
+          if (newItem.sholat === sholatSession) {
+            const santri = allSantri.find(s => s.nama === newItem.nama && s.kelas === newItem.kelas);
+            const studentKey = santri?.id || `${newItem.nama}-${newItem.kelas}`;
+            
+            setCheckedSantriIds(prev => {
+              if (prev.has(studentKey)) return prev;
+              const next = new Set(prev);
+              next.add(studentKey);
+              return next;
+            });
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [sholatSession, allSantri]);
 
   async function fetchData() {
     setLoading(true);
@@ -126,6 +163,13 @@ export default function AttendanceList() {
     try {
       const studentKey = santri.id || `${santri.nama}-${santri.kelas}`;
       
+      // Prevent duplicate processing
+      if (processingRef.current.has(studentKey) || checkedSantriIds.has(studentKey)) {
+        return;
+      }
+      
+      processingRef.current.add(studentKey);
+      
       const newAbsen = {
         nama: santri.nama || '',
         kelas: santri.kelas || '',
@@ -145,10 +189,8 @@ export default function AttendanceList() {
         icon: 'success',
         title: 'Absensi Berhasil',
         text: `${santri.nama} (Kelas ${santri.kelas}) telah diabsen.`,
-        timer: 2000,
-        showConfirmButton: false,
-        toast: true,
-        position: 'top-end'
+        timer: 1500,
+        showConfirmButton: false
       });
 
       // Update state lokal
@@ -174,6 +216,9 @@ export default function AttendanceList() {
         text: errorMsg,
         confirmButtonColor: '#e11d48'
       });
+    } finally {
+      const studentKey = santri.id || `${santri.nama}-${santri.kelas}`;
+      processingRef.current.delete(studentKey);
     }
   }
 
@@ -216,18 +261,16 @@ export default function AttendanceList() {
         
         if (santri) {
           const studentKey = santri.id || `${santri.nama}-${santri.kelas}`;
-          if (!checkedSantriIds.has(studentKey)) {
+          if (!checkedSantriIds.has(studentKey) && !processingRef.current.has(studentKey)) {
             handleCheck(santri);
             if ("vibrate" in navigator) navigator.vibrate(200);
-          } else {
+          } else if (checkedSantriIds.has(studentKey)) {
             Swal.fire({
               icon: 'info',
               title: 'Sudah Absen',
               text: `${santri.nama} sudah melakukan presensi sebelumnya.`,
-              timer: 2000,
-              showConfirmButton: false,
-              toast: true,
-              position: 'top-end'
+              timer: 1500,
+              showConfirmButton: false
             });
           }
         } else {
