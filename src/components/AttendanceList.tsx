@@ -5,6 +5,7 @@ import { Santri, AbsenSholat } from '../types';
 import { CheckCircle2, Circle, Clock, Flame, Users, Bell, Search, Filter, TrendingUp, Smartphone } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { format } from 'date-fns';
+import Swal from 'sweetalert2';
 
 export default function AttendanceList() {
   const [sholatSession, setSholatSession] = useState(getCurrentSholat());
@@ -113,14 +114,18 @@ export default function AttendanceList() {
 
   async function handleCheck(santri: Santri) {
     if (sholatSession === 'None') {
-      alert("Maaf, saat ini bukan waktu sholat (atau di luar jendela waktu presensi).");
+      Swal.fire({
+        icon: 'error',
+        title: 'Bukan Waktu Sholat',
+        text: 'Maaf, saat ini bukan waktu sholat (atau di luar jendela waktu presensi).',
+        confirmButtonColor: '#4f46e5'
+      });
       return;
     }
 
     try {
       const studentKey = santri.id || `${santri.nama}-${santri.kelas}`;
       
-      // Pastikan data yang dikirim sesuai dengan kolom di database
       const newAbsen = {
         nama: santri.nama || '',
         kelas: santri.kelas || '',
@@ -128,21 +133,25 @@ export default function AttendanceList() {
         kehadiran: isIqomah ? 'Telat' : 'Berjamaah'
       };
 
-      console.log("Mencoba kirim ke Supabase:", newAbsen);
-
       const { data, error } = await supabase
         .from('absen_sholat')
         .insert([newAbsen])
         .select();
 
-      if (error) {
-        console.error("Supabase Error API:", error);
-        throw new Error(error.message);
-      }
+      if (error) throw new Error(error.message);
 
-      console.log("Berhasil simpan:", data);
+      // Success Notification
+      Swal.fire({
+        icon: 'success',
+        title: 'Absensi Berhasil',
+        text: `${santri.nama} (Kelas ${santri.kelas}) telah diabsen.`,
+        timer: 2000,
+        showConfirmButton: false,
+        toast: true,
+        position: 'top-end'
+      });
 
-      // Update state lokal agar nama langsung hilang dari daftar
+      // Update state lokal
       setCheckedSantriIds(prev => {
         const next = new Set(prev);
         next.add(studentKey);
@@ -154,12 +163,17 @@ export default function AttendanceList() {
       
       let errorMsg = err.message;
       if (errorMsg.includes("column") && errorMsg.includes("sholat")) {
-        errorMsg = "Kolom 'sholat' tidak ditemukan di tabel Supabase. Silakan tambahkan kolom tersebut.";
+        errorMsg = "Kolom 'sholat' tidak ditemukan di tabel Supabase.";
       } else if (errorMsg.includes("row-level security")) {
-        errorMsg = "Akses ditolak oleh Supabase (RLS Policy). Silakan matikan RLS atau tambahkan Policy 'Insert' untuk publik.";
+        errorMsg = "Akses ditolak oleh Supabase (RLS Policy).";
       }
 
-      alert(`Gagal Absen: ${errorMsg}\n\nPeriksa SQL Editor di Supabase untuk memastikan struktur tabel sesuai.`);
+      Swal.fire({
+        icon: 'error',
+        title: 'Gagal Absen',
+        text: errorMsg,
+        confirmButtonColor: '#e11d48'
+      });
     }
   }
 
@@ -205,9 +219,24 @@ export default function AttendanceList() {
           if (!checkedSantriIds.has(studentKey)) {
             handleCheck(santri);
             if ("vibrate" in navigator) navigator.vibrate(200);
+          } else {
+            Swal.fire({
+              icon: 'info',
+              title: 'Sudah Absen',
+              text: `${santri.nama} sudah melakukan presensi sebelumnya.`,
+              timer: 2000,
+              showConfirmButton: false,
+              toast: true,
+              position: 'top-end'
+            });
           }
         } else {
-          alert(`Kartu Tidak Terdaftar\n\nSerial: ${finalId}\n\nSilakan klik ikon HP di sebelah nama santri "${selectedKelas ? 'di kelas ini' : 'di daftar'}" lalu tempelkan kartu ini untuk mendaftarkannya.`);
+          Swal.fire({
+            icon: 'warning',
+            title: 'Kartu Tidak Terdaftar',
+            html: `Serial: <b>${finalId}</b><br><br>Silakan klik ikon HP di sebelah nama santri lalu tempelkan kartu ini untuk mendaftarkannya.`,
+            confirmButtonColor: '#4f46e5'
+          });
         }
       };
 
@@ -218,7 +247,12 @@ export default function AttendanceList() {
     } catch (error) {
       console.error("NFC Scan Error:", error);
       setIsNfcScanning(false);
-      alert("Gagal mengaktifkan NFC. Pastikan izin lokasi/NFC diberikan.");
+      Swal.fire({
+        icon: 'error',
+        title: 'NFC Error',
+        text: 'Gagal mengaktifkan NFC. Pastikan izin lokasi/NFC diberikan.',
+        confirmButtonColor: '#e11d48'
+      });
     }
   }
 
@@ -231,7 +265,14 @@ export default function AttendanceList() {
 
       if (error) throw error;
       
-      alert(`Berhasil! Kartu terhubung ke santri.`);
+      Swal.fire({
+        icon: 'success',
+        title: 'Registrasi Berhasil',
+        text: 'Kartu NFC berhasil dihubungkan ke santri.',
+        timer: 2000,
+        showConfirmButton: false
+      });
+      
       setRegisteringNfcFor(null);
       setIsNfcScanning(false);
       
@@ -239,7 +280,11 @@ export default function AttendanceList() {
       const { data } = await supabase.from('santri').select('*');
       setAllSantri(data || []);
     } catch (err: any) {
-      alert("Gagal registrasi kartu: " + err.message);
+      Swal.fire({
+        icon: 'error',
+        title: 'Registrasi Gagal',
+        text: err.message
+      });
     }
   }
 
@@ -314,7 +359,14 @@ export default function AttendanceList() {
 
           <div className="flex flex-col md:flex-row items-center gap-3">
             <button 
-              onClick={!nfcSupported ? () => alert("NFC tidak didukung di browser ini. Gunakan Chrome di Android.") : (isNfcScanning ? () => { setIsNfcScanning(false); setRegisteringNfcFor(null); } : startNfcScan)}
+              onClick={!nfcSupported 
+                ? () => Swal.fire({
+                    icon: 'warning',
+                    title: 'NFC Tidak Tersedia',
+                    text: 'NFC tidak didukung di browser ini. Gunakan Chrome di Android.',
+                    confirmButtonColor: '#4f46e5'
+                  }) 
+                : (isNfcScanning ? () => { setIsNfcScanning(false); setRegisteringNfcFor(null); } : startNfcScan)}
               className={cn(
                 "flex items-center gap-2 px-6 py-3 rounded-2xl font-bold text-xs uppercase tracking-widest transition-all shadow-md active:scale-95",
                 !nfcSupported 
