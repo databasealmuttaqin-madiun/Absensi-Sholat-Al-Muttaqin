@@ -3,6 +3,7 @@ export interface Santri {
   nama: string;
   kelas: string;
   status: 'Aktif' | 'Pulang' | 'Sakit';
+  nfc_id?: string;
 }
 
 export interface AbsenSholat {
