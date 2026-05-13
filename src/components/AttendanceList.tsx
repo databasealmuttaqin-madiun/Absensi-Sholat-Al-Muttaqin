@@ -151,12 +151,11 @@ export default function AttendanceList() {
 
   async function handleCheck(santri: Santri) {
     if (sholatSession === 'None') {
-      Swal.fire({
-        icon: 'error',
-        title: 'Bukan Waktu Sholat',
-        text: 'Maaf, saat ini bukan waktu sholat (atau di luar jendela waktu presensi).',
-        confirmButtonColor: '#4f46e5'
-      });
+            Swal.fire({
+              title: 'Bukan Waktu Sholat',
+              text: 'Maaf, saat ini bukan waktu sholat (atau di luar jendela waktu presensi).',
+              confirmButtonColor: '#4f46e5'
+            });
       return;
     }
 
@@ -165,6 +164,7 @@ export default function AttendanceList() {
       
       // Prevent duplicate processing
       if (processingRef.current.has(studentKey) || checkedSantriIds.has(studentKey)) {
+        console.log("Blocking duplicate check for:", studentKey);
         return;
       }
       
@@ -177,19 +177,17 @@ export default function AttendanceList() {
         kehadiran: isIqomah ? 'Telat' : 'Berjamaah'
       };
 
-      const { data, error } = await supabase
+      const { error } = await supabase
         .from('absen_sholat')
-        .insert([newAbsen])
-        .select();
+        .insert([newAbsen]);
 
       if (error) throw new Error(error.message);
 
       // Success Notification
       Swal.fire({
-        icon: 'success',
         title: 'Absensi Berhasil',
         text: `${santri.nama} (Kelas ${santri.kelas}) telah diabsen.`,
-        timer: 1500,
+        timer: 2000,
         showConfirmButton: false
       });
 
@@ -211,14 +209,16 @@ export default function AttendanceList() {
       }
 
       Swal.fire({
-        icon: 'error',
         title: 'Gagal Absen',
         text: errorMsg,
         confirmButtonColor: '#e11d48'
       });
     } finally {
+      // Tunggu sebentar sebelum menghapus dari processingRef untuk memberi waktu state update
       const studentKey = santri.id || `${santri.nama}-${santri.kelas}`;
-      processingRef.current.delete(studentKey);
+      setTimeout(() => {
+        processingRef.current.delete(studentKey);
+      }, 2000);
     }
   }
 
@@ -266,7 +266,6 @@ export default function AttendanceList() {
             if ("vibrate" in navigator) navigator.vibrate(200);
           } else if (checkedSantriIds.has(studentKey)) {
             Swal.fire({
-              icon: 'info',
               title: 'Sudah Absen',
               text: `${santri.nama} sudah melakukan presensi sebelumnya.`,
               timer: 1500,
@@ -275,7 +274,6 @@ export default function AttendanceList() {
           }
         } else {
           Swal.fire({
-            icon: 'warning',
             title: 'Kartu Tidak Terdaftar',
             html: `Serial: <b>${finalId}</b><br><br>Silakan klik ikon HP di sebelah nama santri lalu tempelkan kartu ini untuk mendaftarkannya.`,
             confirmButtonColor: '#4f46e5'
@@ -291,7 +289,6 @@ export default function AttendanceList() {
       console.error("NFC Scan Error:", error);
       setIsNfcScanning(false);
       Swal.fire({
-        icon: 'error',
         title: 'NFC Error',
         text: 'Gagal mengaktifkan NFC. Pastikan izin lokasi/NFC diberikan.',
         confirmButtonColor: '#e11d48'
@@ -309,7 +306,6 @@ export default function AttendanceList() {
       if (error) throw error;
       
       Swal.fire({
-        icon: 'success',
         title: 'Registrasi Berhasil',
         text: 'Kartu NFC berhasil dihubungkan ke santri.',
         timer: 2000,
@@ -324,7 +320,6 @@ export default function AttendanceList() {
       setAllSantri(data || []);
     } catch (err: any) {
       Swal.fire({
-        icon: 'error',
         title: 'Registrasi Gagal',
         text: err.message
       });
@@ -404,7 +399,6 @@ export default function AttendanceList() {
             <button 
               onClick={!nfcSupported 
                 ? () => Swal.fire({
-                    icon: 'warning',
                     title: 'NFC Tidak Tersedia',
                     text: 'NFC tidak didukung di browser ini. Gunakan Chrome di Android.',
                     confirmButtonColor: '#4f46e5'

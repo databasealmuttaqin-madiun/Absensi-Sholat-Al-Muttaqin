@@ -25,6 +25,7 @@ import {
 } from 'date-fns';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import Swal from 'sweetalert2';
 import { cn } from '../lib/utils';
 
 type ViewMode = 'daily' | 'weekly' | 'monthly';
@@ -179,6 +180,87 @@ export default function RecapView() {
 
   const kelasList = useMemo(() => Array.from(new Set(santriList.map(s => s.kelas))).sort(), [santriList]);
 
+  const showStudentHistory = (item: any) => {
+    const sholatList = ['Subuh', 'Dzuhur', 'Ashar', 'Maghrib', 'Isya'];
+    
+    if (viewMode === 'daily') {
+      const studentRecords = attendanceData.filter(a => a.nama === item.nama && a.kelas === item.kelas);
+      
+      let historyHtml = '<div class="text-left space-y-2 mt-4">';
+      sholatList.forEach(s => {
+        const record = studentRecords.find(r => r.sholat === s);
+        let statusText = 'Tidak Berjamaah';
+        let statusColor = 'text-slate-400';
+        
+        if (record) {
+          statusText = record.kehadiran;
+          if (statusText === 'Berjamaah') statusColor = 'text-emerald-500';
+          else if (statusText === 'Telat') statusColor = 'text-amber-500';
+          else if (statusText === 'Pulang') statusColor = 'text-indigo-500';
+          else if (statusText === 'Sakit') statusColor = 'text-rose-400';
+        }
+        
+        historyHtml += `
+          <div class="flex justify-between items-center py-2.5 border-b border-slate-50 last:border-0 hover:bg-slate-50/50 px-2 rounded-lg transition-colors">
+            <span class="font-bold text-slate-600">${s}</span>
+            <span class="font-black text-[10px] uppercase tracking-[0.1em] ${statusColor}">${statusText}</span>
+          </div>
+        `;
+      });
+      historyHtml += '</div>';
+
+      Swal.fire({
+        title: item.nama,
+        text: `Presensi Sholat - Hari Ini`,
+        html: historyHtml,
+        confirmButtonColor: '#4f46e5',
+        confirmButtonText: 'Tutup',
+        customClass: {
+          title: 'text-xl font-black text-slate-800',
+          popup: 'rounded-[1.5rem] p-6',
+        }
+      });
+    } else {
+      const total = item.berjamaah + item.telat + item.tidakHadir;
+      const percentage = total > 0 ? Math.round((item.berjamaah / total) * 100) : 0;
+      
+      const statsHtml = `
+        <div class="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div class="bg-emerald-50 p-4 rounded-2xl flex flex-col items-center justify-center">
+            <div class="text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-1">Berjamaah</div>
+            <div class="text-2xl font-black text-emerald-700">${item.berjamaah} x</div>
+          </div>
+          <div class="bg-amber-50 p-4 rounded-2xl flex flex-col items-center justify-center">
+            <div class="text-[10px] font-black text-amber-600 uppercase tracking-widest mb-1">Telat</div>
+            <div class="text-2xl font-black text-amber-700">${item.telat} x</div>
+          </div>
+          <div class="bg-rose-50 p-4 rounded-2xl flex flex-col items-center justify-center">
+            <div class="text-[10px] font-black text-rose-600 uppercase tracking-widest mb-1">Tidak Berjamaah</div>
+            <div class="text-2xl font-black text-rose-700">${item.tidakHadir} x</div>
+          </div>
+          <div class="bg-indigo-50 p-4 rounded-2xl flex flex-col items-center justify-center">
+            <div class="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-1">Persentase</div>
+            <div class="text-2xl font-black text-indigo-700">${percentage}%</div>
+          </div>
+        </div>
+      `;
+
+      Swal.fire({
+        title: item.nama,
+        html: `
+          <div class="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Rekap ${viewMode === 'weekly' ? 'Mingguan' : 'Bulanan'} - Kelas ${item.kelas}</div>
+          ${statsHtml}
+        `,
+        confirmButtonColor: '#4f46e5',
+        confirmButtonText: 'Tutup',
+        customClass: {
+          title: 'text-xl font-black text-slate-800',
+          popup: 'rounded-[1.5rem] p-6',
+        }
+      });
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Search & Export Section */}
@@ -248,8 +330,13 @@ export default function RecapView() {
                   return (
                     <tr key={idx} className="group hover:bg-slate-50 transition-colors">
                       <td className="py-5 px-2">
-                        <div className="font-bold text-slate-800 group-hover:text-indigo-600 transition-colors">{item.nama}</div>
-                        <div className="text-[10px] font-black text-slate-400 uppercase tracking-tighter">Kelas {item.kelas}</div>
+                        <button 
+                          onClick={() => showStudentHistory(item)}
+                          className="text-left group cursor-pointer"
+                        >
+                          <div className="font-bold text-slate-800 group-hover:text-indigo-600 transition-colors">{item.nama}</div>
+                          <div className="text-[10px] font-black text-slate-400 uppercase tracking-tighter">Kelas {item.kelas}</div>
+                        </button>
                       </td>
                       <td className="py-5 px-2 text-center font-mono font-bold text-slate-700">{item.berjamaah}</td>
                       <td className="py-5 px-2 text-center font-mono font-bold text-rose-500">{item.telat}</td>
