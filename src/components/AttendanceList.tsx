@@ -181,28 +181,50 @@ export default function AttendanceList() {
       
       ndef.onreading = (event: any) => {
         const serialNumber = event.serialNumber;
-        console.log("NFC Tag Detected:", serialNumber);
+        let nfcData = serialNumber;
+
+        // Cek apakah ada data teks (NDEF) di dalam kartu
+        if (event.message && event.message.records) {
+          for (const record of event.message.records) {
+            if (record.recordType === "text") {
+              try {
+                const textDecoder = new TextDecoder(record.encoding || 'utf-8');
+                const decoded = textDecoder.decode(record.data);
+                
+                // NDEF Text record: first byte is status (encoding + lang length)
+                // We attempt to strip the language code to get the pure text
+                const langCodeLength = record.data instanceof DataView 
+                  ? record.data.getUint8(0) & 0x3f 
+                  : (new DataView(record.data.buffer)).getUint8(0) & 0x3f;
+                  
+                nfcData = decoded.substring(1 + langCodeLength);
+              } catch (e) {
+                console.warn("Gagal decode teks NFC:", e);
+              }
+            }
+          }
+        }
+
+        console.log("NFC Detected - SN:", serialNumber, "Data:", nfcData);
         
-        // Mode registrasi kartu baru
         if (registeringNfcFor) {
-          handleRegisterNfc(registeringNfcFor, serialNumber);
+          handleRegisterNfc(registeringNfcFor, nfcData);
           return;
         }
 
-        // Mode presensi normal
-        const santri = allSantri.find(s => s.nfc_id === serialNumber);
+        const santri = allSantri.find(s => 
+          (s.nfc_id && s.nfc_id.trim() === nfcData?.trim()) || 
+          (s.nfc_id && s.nfc_id.trim() === serialNumber?.trim())
+        );
         
         if (santri) {
           const studentKey = santri.id || `${santri.nama}-${santri.kelas}`;
           if (!checkedSantriIds.has(studentKey)) {
             handleCheck(santri);
-            // Optional: Provide haptic feedback if supported
             if ('vibrate' in navigator) navigator.vibrate(200);
-          } else {
-            console.log("Santri sudah diabsen:", santri.nama);
           }
         } else {
-          alert(`Tag NFC (${serialNumber}) tidak terdaftar pada santri manapun.`);
+          alert(`Tag NFC tidak terdaftar.\nSerial: ${serialNumber || '-'}\nIsi Teks: ${nfcData === serialNumber ? '(Kosong)' : nfcData}`);
         }
       };
 
