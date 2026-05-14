@@ -3,7 +3,7 @@ import { format, isWithinInterval, setHours, setMinutes } from 'date-fns';
 export type SholatType = 'Subuh' | 'Dzuhur' | 'Ashar' | 'Maghrib' | 'Isya' | 'None';
 
 export const SHOLAT_WINDOWS: Record<Exclude<SholatType, 'None'>, { start: [number, number], end: [number, number] }> = {
-  Subuh: { start: [4, 0], end: [5, 0] },
+  Subuh: { start: [4, 0], end: [10, 0] },
   Dzuhur: { start: [11, 30], end: [12, 30] },
   Ashar: { start: [14, 50], end: [15, 30] },
   Maghrib: { start: [17, 15], end: [18, 0] },
