@@ -42,31 +42,29 @@ export default function AttendanceList() {
 
   // Real-time synchronization
   useEffect(() => {
-    if (sholatSession === 'None') return;
+    if (sholatSession === 'None' || allSantri.length === 0) return;
 
     const channel = supabase
-      .channel('attendance_realtime')
+      .channel(`attendance_${sholatSession}`)
       .on(
         'postgres_changes',
         {
           event: 'INSERT',
           schema: 'public',
-          table: 'absen_sholat'
+          table: 'absen_sholat',
+          filter: `sholat=eq.${sholatSession}`
         },
         (payload) => {
           const newItem = payload.new;
-          // Only sync if it matches current session
-          if (newItem.sholat === sholatSession) {
-            const santri = allSantri.find(s => s.nama === newItem.nama && s.kelas === newItem.kelas);
-            const studentKey = santri?.id || `${newItem.nama}-${newItem.kelas}`;
-            
-            setCheckedSantriIds(prev => {
-              if (prev.has(studentKey)) return prev;
-              const next = new Set(prev);
-              next.add(studentKey);
-              return next;
-            });
-          }
+          const santri = allSantri.find(s => s.nama === newItem.nama && s.kelas === newItem.kelas);
+          const studentKey = santri?.id || `${newItem.nama}-${newItem.kelas}`;
+          
+          setCheckedSantriIds(prev => {
+            if (prev.has(studentKey)) return prev;
+            const next = new Set(prev);
+            next.add(studentKey);
+            return next;
+          });
         }
       )
       .subscribe();
@@ -74,7 +72,7 @@ export default function AttendanceList() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [sholatSession, allSantri]);
+  }, [sholatSession, allSantri.length > 0]); // Stabilize dependency
 
   async function fetchData() {
     setLoading(true);
@@ -151,24 +149,47 @@ export default function AttendanceList() {
 
   async function handleCheck(santri: Santri) {
     if (sholatSession === 'None') {
-            Swal.fire({
-              title: 'Bukan Waktu Sholat',
-              text: 'Maaf, saat ini bukan waktu sholat (atau di luar jendela waktu presensi).',
-              confirmButtonColor: '#4f46e5'
-            });
+      Swal.fire({
+        title: 'Bukan Waktu Sholat',
+        text: 'Maaf, saat ini bukan waktu sholat (atau di luar jendela waktu presensi).',
+        confirmButtonColor: '#4f46e5'
+      });
       return;
     }
 
+    const studentKey = santri.id || `${santri.nama}-${santri.kelas}`;
+
     try {
-      const studentKey = santri.id || `${santri.nama}-${santri.kelas}`;
-      
-      // Prevent duplicate processing
+      // 1. Double Local Check
       if (processingRef.current.has(studentKey) || checkedSantriIds.has(studentKey)) {
-        console.log("Blocking duplicate check for:", studentKey);
         return;
       }
       
       processingRef.current.add(studentKey);
+
+      // 2. Optimistic Update (Prevent user from clicking again)
+      setCheckedSantriIds(prev => {
+        const next = new Set(prev);
+        next.add(studentKey);
+        return next;
+      });
+      
+      // 3. Server-side duplicate check (Final defense for multi-device)
+      const today = new Date();
+      const startOfDay = new Date(today.setHours(0, 0, 0, 0)).toISOString();
+      const { data: existing } = await supabase
+        .from('absen_sholat')
+        .select('id')
+        .eq('nama', santri.nama)
+        .eq('kelas', santri.kelas)
+        .eq('sholat', sholatSession)
+        .gte('created_at', startOfDay)
+        .limit(1);
+
+      if (existing && existing.length > 0) {
+        // Record actually exists, skip insert
+        return;
+      }
       
       const newAbsen = {
         nama: santri.nama || '',
@@ -187,24 +208,21 @@ export default function AttendanceList() {
       Swal.fire({
         title: 'Absensi Berhasil',
         text: `${santri.nama} (Kelas ${santri.kelas}) telah diabsen.`,
-        timer: 2000,
+        timer: 1500,
         showConfirmButton: false
       });
 
-      // Update state lokal
+    } catch (err: any) {
+      // Rollback optimistic update on error
       setCheckedSantriIds(prev => {
         const next = new Set(prev);
-        next.add(studentKey);
+        next.delete(studentKey);
         return next;
       });
 
-    } catch (err: any) {
       console.error("Detail Error Lengkap:", err);
-      
       let errorMsg = err.message;
-      if (errorMsg.includes("column") && errorMsg.includes("sholat")) {
-        errorMsg = "Kolom 'sholat' tidak ditemukan di tabel Supabase.";
-      } else if (errorMsg.includes("row-level security")) {
+      if (errorMsg.includes("row-level security")) {
         errorMsg = "Akses ditolak oleh Supabase (RLS Policy).";
       }
 
@@ -214,11 +232,9 @@ export default function AttendanceList() {
         confirmButtonColor: '#e11d48'
       });
     } finally {
-      // Tunggu sebentar sebelum menghapus dari processingRef untuk memberi waktu state update
-      const studentKey = santri.id || `${santri.nama}-${santri.kelas}`;
       setTimeout(() => {
         processingRef.current.delete(studentKey);
-      }, 2000);
+      }, 1000);
     }
   }
 

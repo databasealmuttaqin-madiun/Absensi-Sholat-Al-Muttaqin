@@ -89,6 +89,24 @@ export default function RecapView() {
     }
   }
 
+  const deduplicatedAttendance = useMemo(() => {
+    const uniqueList: AbsenSholat[] = [];
+    const seen = new Set<string>();
+
+    attendanceData.forEach(a => {
+      if (!a.nama || !a.kelas || !a.sholat) return;
+      // Ambil string tanggal saja (YYYY-MM-DD) dari created_at
+      const dateStr = a.created_at ? a.created_at.substring(0, 10) : new Date().toISOString().substring(0, 10);
+      const key = `${a.nama.trim().toLowerCase()}-${a.kelas.trim().toLowerCase()}-${a.sholat.trim().toLowerCase()}-${dateStr}`;
+      
+      if (!seen.has(key)) {
+        seen.add(key);
+        uniqueList.push(a);
+      }
+    });
+    return uniqueList;
+  }, [attendanceData]);
+
   const recapItems = useMemo(() => {
     const stats: Record<string, any> = {};
 
@@ -106,8 +124,8 @@ export default function RecapView() {
       };
     });
 
-    // Populate from actual attendance
-    attendanceData.forEach(a => {
+    // Populate from actual attendance using deduplicated records
+    deduplicatedAttendance.forEach(a => {
       const key = `${a.nama}-${a.kelas}`;
       if (!stats[key]) return;
 
@@ -143,7 +161,7 @@ export default function RecapView() {
         return matchSearch && matchKelas;
       })
       .sort((a, b) => b.berjamaah - a.berjamaah || b.score - a.score);
-  }, [santriList, attendanceData, viewMode, searchQuery, selectedKelas]);
+  }, [santriList, deduplicatedAttendance, viewMode, searchQuery, selectedKelas]);
 
   const exportPDF = () => {
     const doc = new jsPDF();
@@ -184,7 +202,7 @@ export default function RecapView() {
     const sholatList = ['Subuh', 'Dzuhur', 'Ashar', 'Maghrib', 'Isya'];
     
     if (viewMode === 'daily') {
-      const studentRecords = attendanceData.filter(a => a.nama === item.nama && a.kelas === item.kelas);
+      const studentRecords = deduplicatedAttendance.filter(a => a.nama === item.nama && a.kelas === item.kelas);
       
       let historyHtml = '<div class="text-left space-y-2 mt-4">';
       sholatList.forEach(s => {
